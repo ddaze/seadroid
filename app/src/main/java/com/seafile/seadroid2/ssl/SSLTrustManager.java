@@ -1,9 +1,11 @@
 package com.seafile.seadroid2.ssl;
 
+import java.net.Socket;
 import java.security.KeyStore;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
 import java.security.Principal;
+import java.security.PrivateKey;
 import java.security.SecureRandom;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateParsingException;
@@ -13,26 +15,33 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import javax.net.ssl.KeyManager;
 import javax.net.ssl.SSLException;
 import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509ExtendedKeyManager;
 import javax.net.ssl.X509TrustManager;
 
 import org.apache.http.conn.ssl.BrowserCompatHostnameVerifier;
 import org.apache.http.conn.ssl.X509HostnameVerifier;
 
+import android.content.Context;
+import android.security.KeyChain;
+import android.security.KeyChainException;
 import android.util.Log;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.seafile.seadroid2.SeadroidApplication;
 import com.seafile.seadroid2.account.Account;
 
 public final class SSLTrustManager {
     public enum SslFailureReason {
         CERT_NOT_TRUSTED,
         CERT_CHANGED,
+        NO_CLIENT_CERT,;
     }
 
     private static final String DEBUG_TAG = "SSLTrustManager";
@@ -40,6 +49,9 @@ public final class SSLTrustManager {
     private X509TrustManager defaultTrustManager;
 
     private Map<Account, SecureX509TrustManager> managers =
+            Maps.newHashMap();
+
+    private Map<Account, KeyChainKeyManager> keyChainManagers =
             Maps.newHashMap();
 
     private Map<Account, SSLSocketFactory> cachedFactories =
@@ -91,6 +103,21 @@ public final class SSLTrustManager {
         return new TrustManager[] {mgr};
     }
 
+    public synchronized KeyManager[] getKeyManagers(Account account) {
+        KeyChainKeyManager mgr = keyChainManagers.get(account);
+        if (mgr == null) {
+            try {
+                // TODO: Error reporting
+                mgr = KeyChainKeyManager.fromAlias(SeadroidApplication.getAppContext(), account.getClientCertAlias());
+            } catch (CertificateException e) {
+                e.printStackTrace();
+            }
+            keyChainManagers.put(account, mgr);
+        }
+
+        return new KeyManager[]{mgr};
+    }
+
     public synchronized SSLSocketFactory getSSLSocketFactory(Account account) {
         SSLSocketFactory factory = cachedFactories.get(account);
 
@@ -99,8 +126,9 @@ public final class SSLTrustManager {
         }
 
         try {
+            KeyManager[] keyMgrs = getKeyManagers(account);
             TrustManager[] mgrs = getTrustManagers(account);
-            factory = new SSLSeafileSocketFactory(null, mgrs, new SecureRandom());
+            factory = new SSLSeafileSocketFactory(keyMgrs, mgrs, new SecureRandom());
             Log.d(DEBUG_TAG, "a SSLSocketFactory is created:" + factory);
         } catch (Exception e) {
             Log.e(DEBUG_TAG, "error when create SSLSocketFactory", e);
@@ -121,7 +149,7 @@ public final class SSLTrustManager {
 
         return mgr.getServerCertsChain();
     }
-    
+
     public X509Certificate getCertificateInfo(Account account) throws CertificateParsingException {
         List<X509Certificate> certs = getCertsChainForAccount(account);
         if (certs == null || certs.size() == 0) {
@@ -139,6 +167,16 @@ public final class SSLTrustManager {
         }
 
         return reason != null ? reason : SslFailureReason.CERT_NOT_TRUSTED;
+    }
+
+    public synchronized SslFailureReason getFailureReasonClientCert(Account account) {
+        KeyChainKeyManager mgr = keyChainManagers.get(account);
+        SslFailureReason reason = null;
+        if (mgr != null) {
+            reason = mgr.getReason();
+        }
+
+        return reason;
     }
 
     /**
@@ -290,7 +328,7 @@ public final class SSLTrustManager {
             Log.d(DEBUG_TAG, "a SecureX509TrustManager is finalized:" + hashCode());
         }
     }
-    
+
     public Map<Account, SSLSocketFactory> getCachedFactories() {
         return cachedFactories;
     }
@@ -298,4 +336,110 @@ public final class SSLTrustManager {
     /*public void setCachedFactories(Map<Account, SSLSocketFactory> cachedFactories) {
         this.cachedFactories = cachedFactories;
     }*/
+
+    /**
+     * A {@link KeyManager} that reads uses credentials stored in the system {@link KeyChain}.
+     */
+    public static class KeyChainKeyManager extends X509ExtendedKeyManager {
+        private String mClientAlias = null;
+        private X509Certificate[] mCertificateChain = null;
+        private PrivateKey mPrivateKey = null;
+        private SSLTrustManager.SslFailureReason reason;
+
+        /**
+         * Builds an instance of a KeyChainKeyManager using the given certificate alias.
+         * If for any reason retrieval of the credentials from the system {@link KeyChain} fails,
+         * a {@code null} value will be returned.
+         */
+        public static KeyChainKeyManager fromAlias(Context context, String alias)
+                throws CertificateException {
+            X509Certificate[] certificateChain;
+            if (alias == null || alias.isEmpty()) {
+                return new KeyChainKeyManager(null, null, null);
+            }
+            try {
+                certificateChain = KeyChain.getCertificateChain(context, alias);
+            } catch (KeyChainException e) {
+                logError(alias, "certificate chain", e);
+                throw new CertificateException(e);
+            } catch (InterruptedException e) {
+                logError(alias, "certificate chain", e);
+                throw new CertificateException(e);
+            }
+
+            PrivateKey privateKey;
+            try {
+                privateKey = KeyChain.getPrivateKey(context, alias);
+            } catch (KeyChainException e) {
+                logError(alias, "private key", e);
+                throw new CertificateException(e);
+            } catch (InterruptedException e) {
+                logError(alias, "private key", e);
+                throw new CertificateException(e);
+            }
+
+            if (certificateChain == null || privateKey == null) {
+                throw new CertificateException("Can't access certificate from keystore");
+            }
+
+            return new KeyChainKeyManager(alias, certificateChain, privateKey);
+        }
+
+        private static void logError(String alias, String type, Exception ex) {
+            Log.e(DEBUG_TAG, "Unable to retrieve " + type + " for [" + alias + "] due to " + ex);
+        }
+
+        public SSLTrustManager.SslFailureReason getReason() {
+            return reason;
+        }
+
+        private KeyChainKeyManager(
+                String alias, X509Certificate[] certificateChain, PrivateKey privateKey) {
+            mClientAlias = alias;
+            mCertificateChain = certificateChain;
+            mPrivateKey = privateKey;
+        }
+
+        @Override
+        public String chooseClientAlias(String[] keyTypes, Principal[] issuers, Socket socket) {
+            if (mClientAlias == null || mClientAlias.isEmpty()) {
+                Log.d(DEBUG_TAG, "no saved client cert for: " + socket.getRemoteSocketAddress());
+                reason = SSLTrustManager.SslFailureReason.NO_CLIENT_CERT;
+            } else {
+                reason = null;
+            }
+            return mClientAlias;
+        }
+
+        @Override
+        public X509Certificate[] getCertificateChain(String alias) {
+            return mCertificateChain;
+        }
+
+        @Override
+        public PrivateKey getPrivateKey(String alias) {
+            return mPrivateKey;
+        }
+
+        // The following methods are unused.
+
+        @Override
+        public final String chooseServerAlias(
+                String keyType, Principal[] issuers, Socket socket) {
+            // not a client SSLSocket callback
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public final String[] getClientAliases(String keyType, Principal[] issuers) {
+            // not a client SSLSocket callback
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public final String[] getServerAliases(String keyType, Principal[] issuers) {
+            // not a client SSLSocket callback
+            throw new UnsupportedOperationException();
+        }
+    }
 }

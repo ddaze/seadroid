@@ -20,6 +20,7 @@
   <string name="passwd_min_len_limit_hint">Password (at least %d characters)</string>
   <string name="passwd_confirmation_hint">Password again</string>
   <string name="login">Log In</string>
+  <string name="client_cert">Client Certificate</string>
   <string name="open_file">Open</string>
   <string name="download_file">Download</string>
   <string name="redownload_file">Download again</string>

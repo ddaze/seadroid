@@ -1,5 +1,6 @@
 package com.seafile.seadroid2.account.ui;
 
+import android.accounts.AccountManager;
 import android.app.ProgressDialog;
 import android.content.Context;
 import android.content.Intent;
@@ -7,6 +8,9 @@ import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.security.KeyChain;
+import android.security.KeyChainAliasCallback;
+import android.support.annotation.Nullable;
 import android.support.design.widget.TextInputLayout;
 import android.support.v4.app.NavUtils;
 import android.support.v4.app.TaskStackBuilder;
@@ -47,9 +51,11 @@ import org.json.JSONException;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 
-public class AccountDetailActivity extends BaseActivity implements Toolbar.OnMenuItemClickListener {
+public class AccountDetailActivity extends BaseActivity implements Toolbar.OnMenuItemClickListener,
+        KeyChainAliasCallback {
     private static final String DEBUG_TAG = "AccountDetailActivity";
 
+    private static final String DEFAULT_ALIAS = "Seafile";
     private static final String HTTP_PREFIX = "http://";
     private static final String HTTPS_PREFIX = "https://";
     public static final String TWO_FACTOR_AUTH = "two_factor_auth";
@@ -62,7 +68,7 @@ public class AccountDetailActivity extends BaseActivity implements Toolbar.OnMen
     private EditText passwdText;
     private CheckBox httpsCheckBox;
     private TextView seahubUrlHintText;
-    private ImageView clearEmail, clearPasswd, ivEyeClick;
+    private ImageView clearEmail, clearPasswd, ivEyeClick, clearClientCert;
     private RelativeLayout rlEye;
     private TextInputLayout authTokenLayout;
     private EditText authTokenText;
@@ -73,13 +79,17 @@ public class AccountDetailActivity extends BaseActivity implements Toolbar.OnMen
     private CheckBox cbRemDevice;
     private String mSessionKey;
 
+    private RelativeLayout rlClientCert;
+    private Button clientCertButton;
+    private TextView clientCertAliasText;
+
     /** Called when the activity is first created. */
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.account_detail);
 
-        mAccountManager = android.accounts.AccountManager.get(getBaseContext());
+        mAccountManager = AccountManager.get(getBaseContext());
 
         statusView = (TextView) findViewById(R.id.status_view);
         loginButton = (Button) findViewById(R.id.login_button);
@@ -98,6 +108,10 @@ public class AccountDetailActivity extends BaseActivity implements Toolbar.OnMen
         authTokenText = (EditText) findViewById(R.id.auth_token);
         authTokenLayout.setVisibility(View.GONE);
 
+        rlClientCert = (RelativeLayout) findViewById(R.id.client_cert_rel_layout);
+        clientCertButton = (Button) findViewById(R.id.client_cert_button);
+        clientCertAliasText = (TextView) findViewById(R.id.client_cert_alias);
+
         cbRemDevice = findViewById(R.id.remember_device);
         cbRemDevice.setVisibility(View.GONE);
         setupServerText();
@@ -113,6 +127,7 @@ public class AccountDetailActivity extends BaseActivity implements Toolbar.OnMen
 
             String server = mAccountManager.getUserData(account, Authenticator.KEY_SERVER_URI);
             String email = mAccountManager.getUserData(account, Authenticator.KEY_EMAIL);
+            String clientCert = mAccountManager.getUserData(account, Authenticator.CLIENT_CERT_ALIAS);
             mSessionKey = mAccountManager.getUserData(account, Authenticator.SESSION_KEY);
             // isFromEdit = mAccountManager.getUserData(account, Authenticator.KEY_EMAIL);
 
@@ -124,6 +139,10 @@ public class AccountDetailActivity extends BaseActivity implements Toolbar.OnMen
             emailText.requestFocus();
             seahubUrlHintText.setVisibility(View.GONE);
 
+            if (clientCert != null && !clientCert.isEmpty()){
+                clientCertAliasText.setText(clientCert);
+                rlClientCert.setVisibility(View.VISIBLE);
+            }
 
         } else if (defaultServerUri != null) {
             if (defaultServerUri.startsWith(HTTPS_PREFIX))
@@ -239,6 +258,19 @@ public class AccountDetailActivity extends BaseActivity implements Toolbar.OnMen
             }
         });
 
+        clientCertButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                KeyChain.choosePrivateKeyAlias(AccountDetailActivity.this,
+                        AccountDetailActivity.this, // Callback
+                        new String[]{}, // Any key types.
+                        null, // Any issuers.
+                        "localhost", // Any host
+                        -1, // Any port
+                        DEFAULT_ALIAS);
+            }
+        });
+
     }
 
     @Override
@@ -252,6 +284,8 @@ public class AccountDetailActivity extends BaseActivity implements Toolbar.OnMen
     protected void onSaveInstanceState(Bundle savedInstanceState) {
         savedInstanceState.putString("email", emailText.getText().toString());
         savedInstanceState.putString("password", passwdText.getText().toString());
+        savedInstanceState.putString("client_cert", clientCertAliasText.getText().toString());
+        savedInstanceState.putInt("client_cert_visibility", rlClientCert.getVisibility());
         savedInstanceState.putBoolean("rememberDevice", cbRemDevice.isChecked());
         super.onSaveInstanceState(savedInstanceState);
     }
@@ -262,6 +296,8 @@ public class AccountDetailActivity extends BaseActivity implements Toolbar.OnMen
 
         emailText.setText((String) savedInstanceState.get("email"));
         passwdText.setText((String) savedInstanceState.get("password"));
+        clientCertAliasText.setText((String) savedInstanceState.get("client_cert"));
+        rlClientCert.setVisibility(savedInstanceState.getInt("client_cert_visibility"));
         cbRemDevice.setChecked((boolean) savedInstanceState.get("rememberDevice"));
     }
 
@@ -328,7 +364,7 @@ public class AccountDetailActivity extends BaseActivity implements Toolbar.OnMen
     }
 
     private void setupServerText() {
-        serverText.setOnFocusChangeListener(new View.OnFocusChangeListener () {
+        serverText.setOnFocusChangeListener(new View.OnFocusChangeListener() {
             @Override
             public void onFocusChange(View v, boolean hasFocus) {
                 Log.d(DEBUG_TAG, "serverText has focus: " + (hasFocus ? "yes" : "no"));
@@ -368,6 +404,7 @@ public class AccountDetailActivity extends BaseActivity implements Toolbar.OnMen
         String serverURL = serverText.getText().toString().trim();
         String email = emailText.getText().toString().trim();
         String passwd = passwdText.getText().toString();
+        String clientCert = clientCertAliasText.getText().toString();
 
         ConnectivityManager connMgr = (ConnectivityManager)
                 getSystemService(Context.CONNECTIVITY_SERVICE);
@@ -412,20 +449,36 @@ public class AccountDetailActivity extends BaseActivity implements Toolbar.OnMen
 
             // force the keyboard to be hidden in all situations
             if (getCurrentFocus() != null) {
-                InputMethodManager imm = (InputMethodManager)getSystemService(Context.INPUT_METHOD_SERVICE);
+                InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
                 imm.hideSoftInputFromWindow(getCurrentFocus().getWindowToken(), 0);
             }
 
             loginButton.setEnabled(false);
-            Account tmpAccount = new Account(serverURL, email, null, false, mSessionKey);
+            Account tmpAccount = new Account(serverURL, email, null, false, mSessionKey, clientCert);
             progressDialog = new ProgressDialog(this);
             progressDialog.setMessage(getString(R.string.settings_cuc_loading));
             progressDialog.setCancelable(false);
-            ConcurrentAsyncTask.execute(new LoginTask(tmpAccount, passwd, authToken,rememberDevice));
+            ConcurrentAsyncTask.execute(new LoginTask(tmpAccount, passwd, authToken, rememberDevice));
 
         } else {
             statusView.setText(R.string.network_down);
         }
+    }
+
+    /**
+     * Called with the alias of the certificate chosen by the user, or
+     * null if no value was chosen.
+     *
+     * @param alias
+     */
+    @Override
+    public void alias(@Nullable String alias) {
+        this.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                clientCertAliasText.setText(alias);
+            }
+        });
     }
 
     private class LoginTask extends AsyncTask<Void, Void, String> {
@@ -482,6 +535,11 @@ public class AccountDetailActivity extends BaseActivity implements Toolbar.OnMen
                         });
                 dialog.show(getSupportFragmentManager(), SslConfirmDialog.FRAGMENT_TAG);
                 return;
+            } else if (err == SeafException.sslClientCertError) {
+                // show client cert input
+                authTokenLayout.setVisibility(View.GONE);
+                cbRemDevice.setVisibility(View.GONE);
+                rlClientCert.setVisibility(View.VISIBLE);
             } else if (err == SeafException.twoFactorAuthTokenMissing) {
                 // show auth token input box
                 authTokenLayout.setVisibility(View.VISIBLE);
@@ -509,6 +567,7 @@ public class AccountDetailActivity extends BaseActivity implements Toolbar.OnMen
                 retData.putExtra(SeafileAuthenticatorActivity.ARG_EMAIL, loginAccount.getEmail());
                 retData.putExtra(SeafileAuthenticatorActivity.ARG_AUTH_SESSION_KEY, loginAccount.getSessionKey());
                 retData.putExtra(SeafileAuthenticatorActivity.ARG_SERVER_URI, loginAccount.getServer());
+                retData.putExtra(SeafileAuthenticatorActivity.ARG_CLIENT_CERT_ALIAS, loginAccount.getClientCertAlias());
                 retData.putExtra(TWO_FACTOR_AUTH, cbRemDevice.isChecked());
                 setResult(RESULT_OK, retData);
                 finish();
@@ -534,7 +593,7 @@ public class AccountDetailActivity extends BaseActivity implements Toolbar.OnMen
                     return "Unknown error";
 
                 // replace email address/username given by the user with the address known by the server.
-                loginAccount = new Account(loginAccount.server, accountInfo.getEmail(), loginAccount.token, false, loginAccount.sessionKey);
+                loginAccount = new Account(loginAccount.server, accountInfo.getEmail(), loginAccount.token, false, loginAccount.sessionKey, loginAccount.clientCertAlias);
 
                 return "Success";
 

@@ -211,6 +211,10 @@ public class SeafConnection {
             account.token = obj.getString("token");
             return true;
         } catch (SeafException e) {
+            if ((e.getCode() == HttpURLConnection.HTTP_BAD_REQUEST
+                    || e.getCode() == HttpURLConnection.HTTP_FORBIDDEN)
+                    && SSLTrustManager.instance().getFailureReasonClientCert(account) != null)
+                throw SeafException.sslClientCertError;
             throw e;
         } catch (HttpRequestException e) {
             throw getSeafExceptionFromHttpRequestException(e);
@@ -270,6 +274,8 @@ public class SeafConnection {
         try {
             return realLogin(passwd, authToken, rememberDevice);
         } catch (Exception e) {
+            if (e == SeafException.sslClientCertError)
+                throw e;
             // do again
             return realLogin(passwd, authToken, rememberDevice);
         }

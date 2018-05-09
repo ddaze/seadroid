@@ -61,6 +61,8 @@ public class Authenticator extends AbstractAccountAuthenticator {
      */
     public final static String SESSION_KEY = "sessionKey";
 
+    public final static String CLIENT_CERT_ALIAS = "clientCertAlias";
+
     public Authenticator(Context context) {
         super(context);
         Log.d(DEBUG_TAG, "SeafileAuthenticator created.");

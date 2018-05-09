@@ -25,6 +25,7 @@ public class Account implements Parcelable, Comparable<Account> {
 
     public String token;
     public String sessionKey;
+    public String clientCertAlias;
 
     public Account(String server, String email, String token, Boolean is_shib) {
         this.server = server;
@@ -32,12 +33,13 @@ public class Account implements Parcelable, Comparable<Account> {
         this.token = token;
         this.is_shib = is_shib;
     }
-    public Account(String server, String email, String token, Boolean is_shib, String sessionKey) {
+    public Account(String server, String email, String token, Boolean is_shib, String sessionKey, String clientCertAlias) {
         this.server = server;
         this.email = email;
         this.token = token;
         this.sessionKey = sessionKey;
         this.is_shib = is_shib;
+        this.clientCertAlias = clientCertAlias;
     }
 
     public String getServerHost() {
@@ -88,9 +90,11 @@ public class Account implements Parcelable, Comparable<Account> {
         this.sessionKey = sessionKey;
     }
 
+    public String getClientCertAlias() { return clientCertAlias; }
+
     @Override
     public int hashCode() {
-        return Objects.hashCode(server, email);
+        return Objects.hashCode(server, email, clientCertAlias);
     }
 
     @Override
@@ -136,6 +140,7 @@ public class Account implements Parcelable, Comparable<Account> {
         out.writeString(this.token);
         out.writeString(this.sessionKey);
         out.writeValue(this.is_shib);
+        out.writeString(this.clientCertAlias);
     }
 
     public static final Parcelable.Creator<Account> CREATOR = new Parcelable.Creator<Account>() {
@@ -156,6 +161,7 @@ public class Account implements Parcelable, Comparable<Account> {
         this.token = in.readString();
         this.sessionKey = in.readString();
         this.is_shib = (Boolean) in.readValue(Boolean.class.getClassLoader());
+        this.clientCertAlias = in.readString();
 
        // Log.d(DEBUG_TAG, String.format("%s %s %s %b", server, email, token ,is_shib));
     }
@@ -166,6 +172,7 @@ public class Account implements Parcelable, Comparable<Account> {
                 .add("server", server)
                 .add("user", email)
                 .add("sessionKey", sessionKey)
+                .add("clientCertAlias", clientCertAlias)
                 .toString();
     }
 

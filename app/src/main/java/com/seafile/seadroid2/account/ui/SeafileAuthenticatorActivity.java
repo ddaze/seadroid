@@ -37,6 +37,7 @@ public class SeafileAuthenticatorActivity extends BaseAuthenticatorActivity {
     public final static String ARG_EMAIL = "EMAIL";
     public final static String ARG_SHIB = "SHIB";
     public final static String ARG_AUTH_SESSION_KEY = "TWO_FACTOR_AUTH";
+    public final static String ARG_CLIENT_CERT_ALIAS = "CLIENT_CERT_ALIAS";
     public final static String ARG_IS_EDITING = "isEdited";
 
     private static final int REQ_SIGNUP = 1;
@@ -134,6 +135,7 @@ public class SeafileAuthenticatorActivity extends BaseAuthenticatorActivity {
         String serveruri = intent.getStringExtra(ARG_SERVER_URI);
         String email = intent.getStringExtra(ARG_EMAIL);
         String sessionKey = intent.getStringExtra(ARG_AUTH_SESSION_KEY);
+        String clientCertAlias = intent.getStringExtra(ARG_CLIENT_CERT_ALIAS);
         boolean shib = intent.getBooleanExtra(ARG_SHIB, false);
 
         int cameraIsSyncable = 0;
@@ -149,6 +151,7 @@ public class SeafileAuthenticatorActivity extends BaseAuthenticatorActivity {
 
                 mAccountManager.setAuthToken(newAccount, Authenticator.AUTHTOKEN_TYPE, authtoken);
                 mAccountManager.setUserData(newAccount, Authenticator.SESSION_KEY, sessionKey);
+                mAccountManager.setUserData(newAccount, Authenticator.CLIENT_CERT_ALIAS, clientCertAlias);
 
                 Bundle result = new Bundle();
                 result.putBoolean(AccountManager.KEY_BOOLEAN_RESULT, true);
@@ -174,6 +177,7 @@ public class SeafileAuthenticatorActivity extends BaseAuthenticatorActivity {
         mAccountManager.setUserData(newAccount, Authenticator.KEY_SERVER_URI, serveruri);
         mAccountManager.setUserData(newAccount, Authenticator.KEY_EMAIL, email);
         mAccountManager.setUserData(newAccount, Authenticator.SESSION_KEY, sessionKey);
+        mAccountManager.setUserData(newAccount, Authenticator.CLIENT_CERT_ALIAS, clientCertAlias);
         if (shib) {
             mAccountManager.setUserData(newAccount, Authenticator.KEY_SHIB, "shib");
         }

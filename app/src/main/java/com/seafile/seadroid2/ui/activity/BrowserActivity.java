@@ -863,7 +863,8 @@ public class BrowserActivity extends BaseActivity
         Log.d(DEBUG_TAG,"Current account: "+selectedAccount);
         if (selectedAccount == null
                 || !account.equals(selectedAccount)
-                || !account.getToken().equals(selectedAccount.getToken())) {
+                || !account.getToken().equals(selectedAccount.getToken())
+                || !account.getClientCertAlias().equals(selectedAccount.getClientCertAlias())) {
             Log.d(DEBUG_TAG,"Account switched, restarting activity.");
             finish();
             startActivity(intent);

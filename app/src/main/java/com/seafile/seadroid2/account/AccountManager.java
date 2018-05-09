@@ -85,7 +85,8 @@ public class AccountManager {
         boolean is_shib = accountManager.getUserData(androidAccount, Authenticator.KEY_SHIB) != null;
         String token = accountManager.peekAuthToken(androidAccount, Authenticator.AUTHTOKEN_TYPE);
         String session_key = accountManager.getUserData(androidAccount, Authenticator.SESSION_KEY);
-        return new Account(server, email, token, is_shib, session_key);
+        String client_cert_alias = accountManager.getUserData(androidAccount, Authenticator.CLIENT_CERT_ALIAS);
+        return new Account(server, email, token, is_shib, session_key, client_cert_alias);
     }
 
     public void setServerInfo(Account account, ServerInfo serverInfo) {
